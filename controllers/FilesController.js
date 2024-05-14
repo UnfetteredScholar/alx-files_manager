@@ -175,7 +175,7 @@ class FilesController {
     if (type !== VALID_FILE_TYPES.folder) {
       const localPath = joinPath(baseDir, uuidv4());
       await writeFileAsync(localPath, Buffer.from(base64Data, 'base64'));
-      newFile.localPath = localPath;
+      newFile.localPath = realpath(localPath);
     }
     const insertionInfo = await (await dbClient.filesCollection())
       .insertOne(newFile);
