@@ -179,6 +179,68 @@ class FilesController {
       ])).toArray();
     res.status(200).json(files);
   }
+
+  static async putPublish(request, response) {
+    const { user } = request;
+    const { id } = request.params;
+    const userId = user._id.toString();
+
+    const filter = {
+      _id: new mongoDBCore.BSON.ObjectId(isValidId(id) ? id : NULL_ID),
+      userId: new mongoDBCore.BSON.ObjectId(isValidId(userId) ? userId : NULL_ID),
+    };
+
+    const file = await (await dbClient.filesCollection())
+      .findOne(filter);
+
+    if (!file) {
+      response.status(404).json({ error: 'Not found' });
+    }
+
+    await (await dbClient.filesCollection()).updateOne(filter, { $set: { isPublic: true } });
+
+    response.status(200).json({
+      id,
+      userId,
+      name: file.name,
+      type: file.type,
+      isPublic: true,
+      parentId: file.parentId === ROOT_FOLDER_ID.toString()
+        ? 0
+        : file.parentId.toString(),
+    });
+  }
+
+  static async putUnpublish(request, response) {
+    const { user } = request;
+    const { id } = request.params;
+    const userId = user._id.toString();
+
+    const filter = {
+      _id: new mongoDBCore.BSON.ObjectId(isValidId(id) ? id : NULL_ID),
+      userId: new mongoDBCore.BSON.ObjectId(isValidId(userId) ? userId : NULL_ID),
+    };
+
+    const file = await (await dbClient.filesCollection())
+      .findOne(filter);
+
+    if (!file) {
+      response.status(404).json({ error: 'Not found' });
+    }
+
+    await (await dbClient.filesCollection()).updateOne(filter, { $set: { isPublic: false } });
+
+    response.status(200).json({
+      id,
+      userId,
+      name: file.name,
+      type: file.type,
+      isPublic: false,
+      parentId: file.parentId === ROOT_FOLDER_ID.toString()
+        ? 0
+        : file.parentId.toString(),
+    });
+  }
 }
 
 module.exports = FilesController;
