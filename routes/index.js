@@ -2,6 +2,7 @@
 import AppController from '../controllers/AppController';
 import UsersController from '../controllers/UsersController';
 import AuthController from '../controllers/AuthController';
+import FileController from '../controllers/FilesController';
 import { basicAuthenticate, xTokenAuthenticate } from '../middleware/auth';
 
 const injectRoutes = (api) => {
@@ -13,6 +14,8 @@ const injectRoutes = (api) => {
 
   api.get('/connect', basicAuthenticate, AuthController.getConnect);
   api.get('/disconnect', xTokenAuthenticate, AuthController.getDisconnect);
+
+  api.post('/files', xTokenAuthenticate, FileController.postUpload);
 };
 
 export default injectRoutes;
