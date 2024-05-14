@@ -1,4 +1,4 @@
-import { Express } from 'express';
+// import { Express } from 'express';
 import AppController from '../controllers/AppController';
 
 const injectRoutes = (api) => {
