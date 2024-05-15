@@ -6,11 +6,9 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   mkdir, writeFile, realpath, existsSync, stat,
 } from 'fs';
+import Queue from 'bull/lib/queue';
 import { contentType } from 'mime-types';
 import { getUserFromXToken } from '../utils/auth';
-// import {
-//   mkdir, writeFile, stat, existsSync, realpath,
-// } from 'fs';
 import dbClient from '../utils/db';
 
 const MAX_FILES_PER_PAGE = 20;
@@ -44,6 +42,8 @@ const isValidId = (id) => {
   }
   return true;
 };
+
+const fileQueue = new Queue('thumbnail generation');
 
 class FilesController {
   static async postUpload(req, res) {
@@ -85,8 +85,7 @@ class FilesController {
     const baseDir = `${process.env.FOLDER_PATH || ''}`.trim().length > 0
       ? process.env.FOLDER_PATH.trim()
       : joinPath(tmpdir(), DEFAULT_ROOT_FOLDER);
-    // default baseDir == '/tmp/files_manager'
-    // or (on Windows) '%USERPROFILE%/AppData/Local/Temp/files_manager';
+
     const newFile = {
       userId: new mongoDBCore.BSON.ObjectId(userId),
       name,
@@ -105,6 +104,11 @@ class FilesController {
     const insertionInfo = await (await dbClient.filesCollection())
       .insertOne(newFile);
     const fileId = insertionInfo.insertedId.toString();
+
+    if (type === ACCEPTED_TYPES.image) {
+      const jobName = `Image thumbnail [${userId}-${fileId}]`;
+      fileQueue.add({ userId, fileId, name: jobName });
+    }
 
     res.status(201).json({
       id: fileId,
@@ -246,6 +250,7 @@ class FilesController {
 
   static async getFile(request, response) {
     const { id } = request.params;
+    const size = request.query.size || null;
     const user = await getUserFromXToken(request);
     const filter = {
       _id: new mongoDBCore.BSON.ObjectId(isValidId(id) ? id : NULL_ID),
@@ -265,9 +270,14 @@ class FilesController {
       response.status(400).json({ error: 'A folder doesn\'t have content' });
       return;
     }
+    let filePath = file.localPath;
 
-    if (existsSync(file.localPath)) {
-      const fileInfo = await statAsync(file.localPath);
+    if (size) {
+      filePath = `${filePath}_${size}`;
+    }
+
+    if (existsSync(filePath)) {
+      const fileInfo = await statAsync(filePath);
       if (!fileInfo.isFile()) {
         response.status(404).json({ error: 'Not found' });
         return;
@@ -276,7 +286,7 @@ class FilesController {
       response.status(404).json({ error: 'Not found' });
       return;
     }
-    const absoluteFilePath = await realpathAsync(file.localPath);
+    const absoluteFilePath = await realpathAsync(filePath);
     response.setHeader('Content-Type', contentType(file.name) || 'text/plain; charset=utf-8');
     response.status(200).sendFile(absoluteFilePath);
   }
