@@ -3,21 +3,23 @@ import { tmpdir } from 'os';
 import { join as joinPath } from 'path';
 import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  mkdir, writeFile, realpath, existsSync, stat,
+} from 'fs';
+import { contentType } from 'mime-types';
+import { getUserFromXToken } from '../utils/auth';
 // import {
 //   mkdir, writeFile, stat, existsSync, realpath,
 // } from 'fs';
-import {
-  mkdir, writeFile, realpath,
-} from 'fs';
 import dbClient from '../utils/db';
 
 const MAX_FILES_PER_PAGE = 20;
 const DEFAULT_ROOT_FOLDER = 'files_manager';
 const ROOT_FOLDER_ID = 0;
-const ACCEPTED_YPES = { folder: 'folder', file: 'file', image: 'image' };
+const ACCEPTED_TYPES = { folder: 'folder', file: 'file', image: 'image' };
 const mkDirAsync = promisify(mkdir);
 const writeFileAsync = promisify(writeFile);
-// const statAsync = promisify(stat);
+const statAsync = promisify(stat);
 const realpathAsync = promisify(realpath);
 const NULL_ID = Buffer.alloc(24, '0').toString('utf-8');
 const isValidId = (id) => {
@@ -56,11 +58,11 @@ class FilesController {
       res.status(400).json({ error: 'Missing name' });
       return;
     }
-    if (!type || !Object.values(ACCEPTED_YPES).includes(type)) {
+    if (!type || !Object.values(ACCEPTED_TYPES).includes(type)) {
       res.status(400).json({ error: 'Missing type' });
       return;
     }
-    if (!req.body.data && type !== ACCEPTED_YPES.folder) {
+    if (!req.body.data && type !== ACCEPTED_TYPES.folder) {
       res.status(400).json({ error: 'Missing data' });
       return;
     }
@@ -74,7 +76,7 @@ class FilesController {
         res.status(400).json({ error: 'Parent not found' });
         return;
       }
-      if (file.type !== ACCEPTED_YPES.folder) {
+      if (file.type !== ACCEPTED_TYPES.folder) {
         res.status(400).json({ error: 'Parent is not a folder' });
         return;
       }
@@ -95,7 +97,7 @@ class FilesController {
         : new mongoDBCore.BSON.ObjectId(parentId),
     };
     await mkDirAsync(baseDir, { recursive: true });
-    if (type !== ACCEPTED_YPES.folder) {
+    if (type !== ACCEPTED_TYPES.folder) {
       const localPath = joinPath(baseDir, uuidv4());
       await writeFileAsync(localPath, Buffer.from(base64Data, 'base64'));
       newFile.localPath = await realpathAsync(localPath);
@@ -240,6 +242,43 @@ class FilesController {
         ? 0
         : file.parentId.toString(),
     });
+  }
+
+  static async getFile(request, response) {
+    const { id } = request.params;
+    const user = await getUserFromXToken(request);
+    const filter = {
+      _id: new mongoDBCore.BSON.ObjectId(isValidId(id) ? id : NULL_ID),
+    };
+    const file = await (await dbClient.filesCollection()).findOne(filter);
+    if (!file) {
+      response.status(404).json({ error: 'Not found' });
+      return;
+    }
+
+    if (!file.isPublic && !user) {
+      response.status(404).json({ error: 'Not found' });
+      return;
+    }
+
+    if (file.type === ACCEPTED_TYPES.folder) {
+      response.status(400).json({ error: 'A folder doesn\'t have content' });
+      return;
+    }
+
+    if (existsSync(file.localPath)) {
+      const fileInfo = await statAsync(file.localPath);
+      if (!fileInfo.isFile()) {
+        response.status(404).json({ error: 'Not found' });
+        return;
+      }
+    } else {
+      response.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const absoluteFilePath = await realpathAsync(file.localPath);
+    response.setHeader('Content-Type', contentType(file.name) || 'text/plain; charset=utf-8');
+    response.status(200).sendFile(absoluteFilePath);
   }
 }
 
